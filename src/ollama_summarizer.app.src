@@ -8,6 +8,6 @@
     ]},
     {env, []},
     {modules, [ollama_summarize]},
-    {licenses, ["Apache 2.0"]},
+    {licenses, ["Apache-2.0"]},
     {links, [{"GitHub", "https://github.com/roquess/ollama_summarizer"}]}
  ]}.

@@ -1,6 +1,6 @@
 -module(ollama_summarizer).
 
-%% @doc Ollama Summarizer Library
+%% Ollama Summarizer Library
 %% This library provides functions to summarize web content and HTML using Ollama API.
 %% It supports both default configuration and custom configuration per request.
 %% Environment variables can be used to override default settings.
@@ -35,23 +35,17 @@
 %% Public API with default configuration
 %% =============================================================================
 
-%% @doc Summarize content from a URL using default/environment configuration.
-%% @param Url The URL to fetch and summarize
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize content from a URL using default/environment configuration.
 -spec summarize_url(string()) -> summarize_result().
 summarize_url(Url) ->
     summarize_url(Url, get_env_config()).
 
-%% @doc Summarize HTML content using default/environment configuration.
-%% @param Html The HTML content to summarize
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize HTML content using default/environment configuration.
 -spec summarize_html(string()) -> summarize_result().
 summarize_html(Html) ->
     summarize_html(Html, get_env_config()).
 
-%% @doc Summarize plain text using default/environment configuration.
-%% @param Text The text content to summarize
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize plain text using default/environment configuration.
 -spec summarize_with_ollama(string()) -> summarize_result().
 summarize_with_ollama(Text) ->
     summarize_with_ollama(Text, get_env_config()).
@@ -60,10 +54,7 @@ summarize_with_ollama(Text) ->
 %% Public API with custom configuration
 %% =============================================================================
 
-%% @doc Summarize content from a URL using custom configuration.
-%% @param Url The URL to fetch and summarize
-%% @param Config Custom configuration map
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize content from a URL using custom configuration.
 -spec summarize_url(string(), config()) -> summarize_result().
 summarize_url(Url, Config) ->
     case fetch_html(Url) of
@@ -74,19 +65,14 @@ summarize_url(Url, Config) ->
             {error, {fetch_failed, Reason}}
     end.
 
-%% @doc Summarize HTML content using custom configuration.
-%% @param Html The HTML content to summarize
-%% @param Config Custom configuration map
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize HTML content using custom configuration.
 -spec summarize_html(string(), config()) -> summarize_result().
 summarize_html(Html, Config) ->
     CleanText = extract_text_from_html(Html),
     summarize_with_ollama(CleanText, Config).
 
-%% @doc Summarize plain text using custom configuration.
-%% @param Text The text content to summarize
-%% @param Config Custom configuration map containing endpoint, model, and prompt_template
-%% @returns {ok, Summary} | {error, Reason}
+%% Summarize plain text using custom configuration.
+%% Config map contains endpoint, model, and prompt_template.
 -spec summarize_with_ollama(string(), config()) -> summarize_result().
 summarize_with_ollama(Text, Config) ->
     Endpoint = maps:get(endpoint, Config, ?DEFAULT_ENDPOINT),
@@ -118,8 +104,7 @@ summarize_with_ollama(Text, Config) ->
 %% Configuration functions
 %% =============================================================================
 
-%% @doc Get default hardcoded configuration.
-%% @returns Default configuration map
+%% Get default hardcoded configuration.
 -spec default_config() -> config().
 default_config() ->
     #{
@@ -128,12 +113,11 @@ default_config() ->
         prompt_template => ?DEFAULT_PROMPT_TEMPLATE
     }.
 
-%% @doc Get configuration from environment variables with fallback to defaults.
+%% Get configuration from environment variables with fallback to defaults.
 %% Environment variables:
 %% - OLLAMA_ENDPOINT: Ollama API endpoint (default: http://localhost:11434/api/generate)
 %% - OLLAMA_MODEL: Model name to use (default: phi3)
 %% - OLLAMA_PROMPT: Prompt template with ~s placeholder (default: French summary prompt)
-%% @returns Configuration map with environment overrides
 -spec get_env_config() -> config().
 get_env_config() ->
     #{
@@ -146,9 +130,7 @@ get_env_config() ->
 %% Utility functions
 %% =============================================================================
 
-%% @doc Print the result of a summarization operation to stdout.
-%% @param Result The result tuple from summarization functions
-%% @returns ok | error
+%% Print the result of a summarization operation to stdout.
 -spec print_result(summarize_result()) -> ok | error.
 print_result({ok, Text}) ->
     io:format("~s~n", [Text]),
@@ -161,10 +143,7 @@ print_result({error, Reason}) ->
 %% Private functions
 %% =============================================================================
 
-%% @private
-%% @doc Fetch HTML content from a URL.
-%% @param Url The URL to fetch
-%% @returns {ok, Html} | {error, Reason}
+%% Fetch HTML content from a URL.
 fetch_html(Url) ->
     % Ensure inets application is started for HTTP client
     application:start(inets),
@@ -177,10 +156,7 @@ fetch_html(Url) ->
             {error, Reason}
     end.
 
-%% @private
-%% @doc Extract plain text from HTML by removing tags and normalizing whitespace.
-%% @param Html The HTML content as string
-%% @returns Clean text string
+%% Extract plain text from HTML by removing tags and normalizing whitespace.
 extract_text_from_html(Html) ->
     % Remove HTML tags
     NoTags = re:replace(Html, "<[^>]*>", " ", [global, {return, list}]),
@@ -189,10 +165,7 @@ extract_text_from_html(Html) ->
     % Trim leading/trailing whitespace
     string:strip(CleanSpaces).
 
-%% @private
-%% @doc Parse JSON response from Ollama API.
-%% @param Body The HTTP response body as string
-%% @returns {ok, ResponseText} | {error, Reason}
+%% Parse JSON response from Ollama API.
 parse_ollama_response(Body) ->
     try
         Json = jsx:decode(list_to_binary(Body)),
