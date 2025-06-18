@@ -1,181 +1,94 @@
 -module(ollama_summarizer).
-
-%% Ollama Summarizer Library
-%% This library provides functions to summarize web content and HTML using Ollama API.
-%% It supports both default configuration and custom configuration per request.
-%% Environment variables can be used to override default settings.
-
 -author("Steve Roques").
 
 %% Public API
 -export([
     summarize_url/1, summarize_url/2,
     summarize_html/1, summarize_html/2,
-    summarize_with_ollama/1, summarize_with_ollama/2,
+    summarize/1, summarize/2,
     print_result/1,
     default_config/0,
     get_env_config/0
 ]).
 
-%% Default configuration constants
--define(DEFAULT_ENDPOINT, "http://localhost:11434/api/generate").
--define(DEFAULT_MODEL, <<"phi3">>).
--define(DEFAULT_PROMPT_TEMPLATE, "Résume ce contenu en français en quelques phrases claires et concises :\n\n~s").
-
-%% Types
--type config() :: #{
-    endpoint => string(),
-    model => binary(),
-    prompt_template => string()
-}.
-
--type summarize_result() :: {ok, binary()} | {error, term()}.
-
 %% =============================================================================
-%% Public API with default configuration
+%% Main summarization functions
 %% =============================================================================
 
-%% Summarize content from a URL using default/environment configuration.
--spec summarize_url(string()) -> summarize_result().
+%% Summarize a web page by URL using environment/default config.
 summarize_url(Url) ->
     summarize_url(Url, get_env_config()).
 
-%% Summarize HTML content using default/environment configuration.
--spec summarize_html(string()) -> summarize_result().
+%% Summarize a web page by URL using a custom config.
+summarize_url(Url, Config) ->
+    case fetch_html(Url) of
+        {ok, Html} -> summarize_html(Html, Config);
+        {error, Reason} -> {error, {fetch_failed, Reason}}
+    end.
+
+%% Summarize HTML content using environment/default config.
 summarize_html(Html) ->
     summarize_html(Html, get_env_config()).
 
-%% Summarize plain text using default/environment configuration.
--spec summarize_with_ollama(string()) -> summarize_result().
-summarize_with_ollama(Text) ->
-    summarize_with_ollama(Text, get_env_config()).
-
-%% =============================================================================
-%% Public API with custom configuration
-%% =============================================================================
-
-%% Summarize content from a URL using custom configuration.
--spec summarize_url(string(), config()) -> summarize_result().
-summarize_url(Url, Config) ->
-    case fetch_html(Url) of
-        {ok, Html} ->
-            CleanText = extract_text_from_html(Html),
-            summarize_with_ollama(CleanText, Config);
-        {error, Reason} ->
-            {error, {fetch_failed, Reason}}
-    end.
-
-%% Summarize HTML content using custom configuration.
--spec summarize_html(string(), config()) -> summarize_result().
+%% Summarize HTML content using a custom config.
 summarize_html(Html, Config) ->
-    CleanText = extract_text_from_html(Html),
-    summarize_with_ollama(CleanText, Config).
+    Text = extract_text_from_html(Html),
+    summarize(Text, Config).
 
-%% Summarize plain text using custom configuration.
-%% Config map contains endpoint, model, and prompt_template.
--spec summarize_with_ollama(string(), config()) -> summarize_result().
-summarize_with_ollama(Text, Config) ->
-    Endpoint = maps:get(endpoint, Config, ?DEFAULT_ENDPOINT),
-    Model = maps:get(model, Config, ?DEFAULT_MODEL),
-    PromptTemplate = maps:get(prompt_template, Config, ?DEFAULT_PROMPT_TEMPLATE),
-    
-    % Format the prompt with the text content
-    Prompt = io_lib:format(PromptTemplate, [Text]),
-    
-    % Prepare JSON payload for Ollama API
-    Payload = jsx:encode(#{
-        <<"model">> => Model,
-        <<"prompt">> => list_to_binary(Prompt),
-        <<"stream">> => false
-    }),
-    
-    % Make HTTP POST request to Ollama API
-    Headers = [{"Content-Type", "application/json"}],
-    case httpc:request(post, {Endpoint, Headers, "application/json", Payload}, [], []) of
-        {ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}} ->
-            parse_ollama_response(Body);
-        {ok, {{_Version, StatusCode, _ReasonPhrase}, _Headers, Body}} ->
-            {error, {ollama_error, StatusCode, Body}};
-        {error, Reason} ->
-            {error, {request_failed, Reason}}
-    end.
+%% Summarize plain text using environment/default config.
+summarize(Text) ->
+    summarize(Text, get_env_config()).
+
+%% Summarize plain text using a custom config.
+summarize(Text, Config) ->
+    %% Build the prompt using the template from config or default
+    PromptTemplate = maps:get(prompt_template, Config, default_prompt_template()),
+    Prompt = ollama_handler:format_prompt(PromptTemplate, [Text]),
+    %% Delegate to ollama_handler with the full config
+    ollama_handler:generate(Prompt, Config).
 
 %% =============================================================================
-%% Configuration functions
+%% Configuration helpers
 %% =============================================================================
 
-%% Get default hardcoded configuration.
--spec default_config() -> config().
+%% Returns the default config (handler defaults + our default prompt template).
 default_config() ->
-    #{
-        endpoint => ?DEFAULT_ENDPOINT,
-        model => ?DEFAULT_MODEL,
-        prompt_template => ?DEFAULT_PROMPT_TEMPLATE
-    }.
+    maps:merge(
+        ollama_handler:default_config(),
+        #{prompt_template => default_prompt_template()}
+    ).
 
-%% Get configuration from environment variables with fallback to defaults.
-%% Environment variables:
-%% - OLLAMA_ENDPOINT: Ollama API endpoint (default: http://localhost:11434/api/generate)
-%% - OLLAMA_MODEL: Model name to use (default: phi3)
-%% - OLLAMA_PROMPT: Prompt template with ~s placeholder (default: French summary prompt)
--spec get_env_config() -> config().
+%% Returns config from environment variables, falling back to defaults.
 get_env_config() ->
-    #{
-        endpoint => os:getenv("OLLAMA_ENDPOINT", ?DEFAULT_ENDPOINT),
-        model => list_to_binary(os:getenv("OLLAMA_MODEL", binary_to_list(?DEFAULT_MODEL))),
-        prompt_template => os:getenv("OLLAMA_PROMPT", ?DEFAULT_PROMPT_TEMPLATE)
-    }.
+    maps:merge(
+        ollama_handler:get_env_config(),
+        #{prompt_template => os:getenv("OLLAMA_PROMPT", default_prompt_template())}
+    ).
+
+%% The default prompt template for summarization.
+default_prompt_template() ->
+    "IMPORTANT : Résume ce contenu en français en quelques phrases claires et concises:\n\n~s".
 
 %% =============================================================================
 %% Utility functions
 %% =============================================================================
 
-%% Print the result of a summarization operation to stdout.
--spec print_result(summarize_result()) -> ok | error.
-print_result({ok, Text}) ->
-    io:format("~s~n", [Text]),
-    ok;
-print_result({error, Reason}) ->
-    io:format("Erreur: ~p~n", [Reason]),
-    error.
-
-%% =============================================================================
-%% Private functions
-%% =============================================================================
+%% Print the result of a summarization operation.
+print_result(Result) ->
+    ollama_handler:print_result(Result).
 
 %% Fetch HTML content from a URL.
 fetch_html(Url) ->
-    % Ensure inets application is started for HTTP client
-    application:start(inets),
+    application:ensure_all_started(inets),
     case httpc:request(get, {Url, []}, [], []) of
-        {ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}} ->
-            {ok, Body};
-        {ok, {{_Version, StatusCode, _ReasonPhrase}, _Headers, _Body}} ->
-            {error, {http_error, StatusCode}};
-        {error, Reason} ->
-            {error, Reason}
+        {ok, {{_, 200, _}, _, Body}} -> {ok, Body};
+        {ok, {{_, Code, _}, _, _}} -> {error, {http_error, Code}};
+        {error, Reason} -> {error, Reason}
     end.
 
 %% Extract plain text from HTML by removing tags and normalizing whitespace.
 extract_text_from_html(Html) ->
-    % Remove HTML tags
     NoTags = re:replace(Html, "<[^>]*>", " ", [global, {return, list}]),
-    % Normalize whitespace (multiple spaces/newlines to single space)
     CleanSpaces = re:replace(NoTags, "\\s+", " ", [global, {return, list}]),
-    % Trim leading/trailing whitespace
     string:strip(CleanSpaces).
 
-%% Parse JSON response from Ollama API.
-parse_ollama_response(Body) ->
-    try
-        Json = jsx:decode(list_to_binary(Body)),
-        case maps:get(<<"response">>, Json, undefined) of
-            undefined ->
-                {error, no_response_field};
-            Response ->
-                {ok, Response}
-        end
-    catch
-        _:Error ->
-            {error, {json_parse_error, Error}}
-    end.
